@@ -1,0 +1,1646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lightbox Lab — Photo Story Sequencer</title>
+<meta name="description" content="A local-first photo story sequencer. Your photos never leave your computer.">
+<style>
+  /* ============ DESIGN TOKENS ============ */
+  :root{
+    --bg:#131211;
+    --bg-deep:#0c0b0a;
+    --panel:#1c1a18;
+    --card:#232120;
+    --card-hi:#2b2927;
+    --line:#33302c;
+    --ink:#ece7dd;
+    --dim:#9b948a;
+    --faint:#6b655c;
+    --accent:#e8b64c;
+    --accent-ink:#1a1508;
+    --keep:#8fd08f;
+    --maybe:#e8b64c;
+    --reject:#e06c5f;
+    --hero:#d29bf0;
+    --open:#7fc4e8;
+    --close:#f0a86e;
+    --radius:10px;
+    --shadow:0 10px 30px rgba(0,0,0,.45);
+    --mono:"SF Mono","Cascadia Mono",Consolas,"Liberation Mono",Menlo,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:var(--sans);font-size:15px;line-height:1.45;
+    -webkit-font-smoothing:antialiased;
+  }
+  button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+  input,textarea,select{font:inherit;color:var(--ink)}
+  ::selection{background:var(--accent);color:var(--accent-ink)}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  /* ============ APP FRAME ============ */
+  #app{display:flex;flex-direction:column;height:100vh;height:100dvh}
+
+  header.topbar{
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    padding:10px 18px;background:var(--bg-deep);border-bottom:1px solid var(--line);
+    position:relative;z-index:30;
+  }
+  .brand{display:flex;align-items:center;gap:10px;user-select:none}
+  .brand .bulb{
+    width:26px;height:26px;border-radius:50%;
+    background:radial-gradient(circle at 35% 35%, #fff6dd, var(--accent) 55%, #8a6420 100%);
+    box-shadow:0 0 14px rgba(232,182,76,.55);flex:none;
+  }
+  .brand h1{font-size:16px;margin:0;letter-spacing:.14em;font-weight:700}
+  .brand h1 small{display:block;font-size:10px;letter-spacing:.22em;color:var(--dim);font-weight:500}
+
+  nav.modes{display:flex;gap:2px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:3px;flex-wrap:wrap}
+  nav.modes button{
+    padding:6px 13px;border-radius:999px;color:var(--dim);font-size:13px;white-space:nowrap;
+  }
+  nav.modes button:hover{color:var(--ink)}
+  nav.modes button[aria-selected="true"]{background:var(--accent);color:var(--accent-ink);font-weight:600}
+
+  .topbar .spacer{flex:1}
+  .tb-btn{
+    display:inline-flex;align-items:center;gap:7px;
+    padding:7px 13px;border-radius:8px;border:1px solid var(--line);
+    background:var(--panel);font-size:13px;white-space:nowrap;
+  }
+  .tb-btn:hover{background:var(--card-hi);border-color:#4a463f}
+  .tb-btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+  .tb-btn.primary:hover{filter:brightness(1.08)}
+
+  /* Export dropdown */
+  .menu-wrap{position:relative}
+  .menu{
+    position:absolute;right:0;top:calc(100% + 6px);min-width:250px;
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:6px;display:none;z-index:60;
+  }
+  .menu.open{display:block}
+  .menu button{
+    display:flex;width:100%;text-align:left;padding:9px 12px;border-radius:7px;
+    font-size:13.5px;gap:10px;align-items:center;
+  }
+  .menu button:hover{background:var(--card-hi)}
+  .menu .sep{height:1px;background:var(--line);margin:6px 4px}
+  .menu .hint{font-size:11px;color:var(--faint);padding:4px 12px 6px}
+
+  /* ============ MAIN LAYOUT ============ */
+  main{flex:1;display:flex;min-height:0}
+  #viewport{flex:1;overflow-y:auto;padding:20px 22px 90px;scroll-behavior:smooth}
+
+  footer.statusbar{
+    display:flex;gap:18px;align-items:center;padding:7px 18px;
+    background:var(--bg-deep);border-top:1px solid var(--line);
+    font-family:var(--mono);font-size:11.5px;color:var(--dim);flex-wrap:wrap;
+  }
+  .statusbar .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:baseline}
+  .statusbar .kbd-hint{margin-left:auto;color:var(--faint)}
+  kbd{
+    font-family:var(--mono);font-size:10.5px;background:var(--card);border:1px solid var(--line);
+    border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:var(--dim);
+  }
+
+  /* ============ DROP OVERLAY ============ */
+  #dropOverlay{
+    position:fixed;inset:0;background:rgba(12,11,10,.88);z-index:100;
+    display:none;align-items:center;justify-content:center;pointer-events:none;
+  }
+  #dropOverlay.active{display:flex}
+  #dropOverlay .zone{
+    border:3px dashed var(--accent);border-radius:22px;padding:60px 90px;text-align:center;
+    color:var(--accent);font-size:22px;letter-spacing:.05em;
+    background:rgba(232,182,76,.06);
+  }
+  #dropOverlay .zone small{display:block;margin-top:10px;font-size:13px;color:var(--dim);letter-spacing:0}
+
+  /* ============ EMPTY STATE ============ */
+  .empty-state{
+    max-width:620px;margin:8vh auto;text-align:center;color:var(--dim);
+  }
+  .empty-state .big-drop{
+    border:2px dashed var(--line);border-radius:18px;padding:56px 30px;cursor:pointer;
+    transition:border-color .15s, background .15s;
+  }
+  .empty-state .big-drop:hover{border-color:var(--accent);background:rgba(232,182,76,.04)}
+  .empty-state h2{color:var(--ink);font-size:22px;margin:0 0 6px}
+  .empty-state .film{font-size:34px;letter-spacing:6px;margin-bottom:14px}
+  .empty-state p{margin:6px 0}
+  .empty-state .steps{
+    text-align:left;margin:26px auto 0;display:inline-block;font-size:13.5px;
+  }
+  .empty-state .steps li{margin:7px 0;color:var(--dim)}
+  .empty-state .steps b{color:var(--ink);font-weight:600}
+  .privacy-note{
+    margin-top:18px;font-size:12px;color:var(--faint);
+    display:inline-flex;gap:7px;align-items:center;
+  }
+
+  /* ============ CONTACT SHEET ============ */
+  .sheet-tools{
+    display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px;
+  }
+  .sheet-tools .count-pill{
+    font-family:var(--mono);font-size:12px;color:var(--dim);
+    padding:5px 11px;border:1px solid var(--line);border-radius:999px;background:var(--panel);
+  }
+  .filter-group{display:flex;gap:2px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:2px}
+  .filter-group button{padding:4px 11px;border-radius:6px;font-size:12.5px;color:var(--dim)}
+  .filter-group button.on{background:var(--card-hi);color:var(--ink)}
+  .sheet-tools .zoom{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dim)}
+  .sheet-tools input[type=range]{width:110px;accent-color:var(--accent)}
+
+  .grid{
+    display:grid;gap:14px;
+    grid-template-columns:repeat(auto-fill,minmax(var(--thumb-size,210px),1fr));
+  }
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    overflow:hidden;cursor:pointer;position:relative;
+    transition:transform .12s, border-color .12s, box-shadow .12s;
+  }
+  .card:hover{transform:translateY(-2px);border-color:#4a463f}
+  .card.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent), var(--shadow)}
+  .card.rating-reject .thumb-box img{opacity:.32;filter:grayscale(.9)}
+  .card .thumb-box{
+    aspect-ratio:4/3;background:var(--bg-deep);display:flex;align-items:center;justify-content:center;overflow:hidden;
+    position:relative;
+  }
+  .card .thumb-box img{width:100%;height:100%;object-fit:cover;display:block}
+  .card .thumb-box .missing{
+    color:var(--faint);font-size:12px;text-align:center;padding:14px;font-family:var(--mono);
+  }
+  .card .role-flags{position:absolute;top:8px;left:8px;display:flex;gap:5px}
+  .flag{
+    font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.06em;
+    padding:3px 7px;border-radius:5px;color:#100e0c;
+  }
+  .flag.hero{background:var(--hero)}
+  .flag.opening{background:var(--open)}
+  .flag.closing{background:var(--close)}
+  .card .rate-strip{
+    position:absolute;top:8px;right:8px;
+  }
+  .rate-dot{width:12px;height:12px;border-radius:50%;box-shadow:0 0 0 2px rgba(0,0,0,.4)}
+  .rate-dot.keep{background:var(--keep)}
+  .rate-dot.maybe{background:var(--maybe)}
+  .rate-dot.reject{background:var(--reject)}
+  .card .meta{padding:8px 10px 4px;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+  .card .fname{
+    font-family:var(--mono);font-size:11px;color:var(--dim);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .card .cap-mark{font-size:11px;color:var(--accent);flex:none}
+  .card .controls{
+    display:flex;gap:4px;padding:6px 8px 9px;flex-wrap:wrap;
+  }
+  .ctl{
+    font-size:10.5px;font-family:var(--mono);font-weight:600;letter-spacing:.03em;
+    padding:4px 8px;border-radius:6px;border:1px solid var(--line);color:var(--dim);
+    background:var(--bg);
+  }
+  .ctl:hover{color:var(--ink);border-color:#55504a}
+  .ctl.on-keep{background:var(--keep);color:#0d2410;border-color:var(--keep)}
+  .ctl.on-maybe{background:var(--maybe);color:#2a1e05;border-color:var(--maybe)}
+  .ctl.on-reject{background:var(--reject);color:#2b0d09;border-color:var(--reject)}
+  .ctl.on-hero{background:var(--hero);color:#241031;border-color:var(--hero)}
+  .ctl.on-opening{background:var(--open);color:#0a2431;border-color:var(--open)}
+  .ctl.on-closing{background:var(--close);color:#33190a;border-color:var(--close)}
+
+  /* ============ TIMELINE ============ */
+  .tl-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+  .tl-head h2{margin:0;font-size:18px}
+  .tl-head .sub{color:var(--dim);font-size:13px}
+  .tray{
+    border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);
+    padding:10px 12px;margin:12px 0 22px;
+  }
+  .tray .tray-label{
+    font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--dim);
+    text-transform:uppercase;margin-bottom:8px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;
+  }
+  .tray-strip{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;min-height:66px;align-items:center}
+  .tray-strip .hint{color:var(--faint);font-size:13px;padding:8px}
+  .chip{
+    flex:none;width:88px;height:62px;border-radius:7px;overflow:hidden;cursor:grab;
+    border:1px solid var(--line);position:relative;background:var(--bg-deep);
+  }
+  .chip img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
+  .chip:active{cursor:grabbing}
+  .chip .mini-dot{position:absolute;top:4px;right:4px;width:8px;height:8px;border-radius:50%;box-shadow:0 0 0 1.5px rgba(0,0,0,.5)}
+  .chip.dragging{opacity:.35}
+
+  .sections{display:flex;flex-direction:column;gap:14px}
+  .section{
+    border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);overflow:hidden;
+  }
+  .section .sec-head{
+    display:flex;align-items:center;gap:10px;padding:9px 14px;
+    border-bottom:1px solid var(--line);background:var(--bg-deep);
+  }
+  .section .sec-head .tape{
+    font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
+    background:var(--accent);color:var(--accent-ink);padding:3px 10px;border-radius:3px;
+    transform:rotate(-1.2deg);
+  }
+  .section .sec-head .sec-desc{font-size:12px;color:var(--faint)}
+  .section .sec-head .sec-count{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .sec-body{
+    display:flex;gap:10px;padding:12px;min-height:104px;overflow-x:auto;align-items:center;
+  }
+  .sec-body.drag-over{background:rgba(232,182,76,.07);outline:2px dashed var(--accent);outline-offset:-6px;border-radius:8px}
+  .sec-body .placeholder{color:var(--faint);font-size:13px;padding:6px 10px}
+  .tl-item{
+    flex:none;width:126px;border-radius:8px;overflow:hidden;background:var(--card);
+    border:1px solid var(--line);cursor:grab;position:relative;
+  }
+  .tl-item:active{cursor:grabbing}
+  .tl-item.dragging{opacity:.35}
+  .tl-item img{width:100%;height:86px;object-fit:cover;display:block;pointer-events:none}
+  .tl-item .tl-cap{
+    font-size:10.5px;color:var(--dim);padding:4px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    font-family:var(--mono);
+  }
+  .tl-item .rm{
+    position:absolute;top:4px;right:4px;width:20px;height:20px;border-radius:50%;
+    background:rgba(12,11,10,.75);color:var(--dim);font-size:12px;line-height:1;
+    display:none;align-items:center;justify-content:center;
+  }
+  .tl-item:hover .rm{display:flex}
+  .tl-item .rm:hover{color:var(--reject)}
+  .drop-slot{
+    flex:none;width:4px;height:86px;border-radius:2px;background:transparent;transition:background .1s;
+  }
+  .drop-slot.hot{background:var(--accent);width:6px;box-shadow:0 0 8px var(--accent)}
+
+  /* ============ PAIRINGS ============ */
+  .pair-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+  .pair-head h2{margin:0;font-size:18px}
+  .pairs-grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(340px,1fr))}
+  .pair-card{
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px;
+  }
+  .pair-card .rule{
+    display:inline-block;font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--accent-ink);background:var(--accent);
+    padding:3px 9px;border-radius:4px;margin-bottom:10px;transform:rotate(-1deg);
+  }
+  .pair-card .duo{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .pair-card .duo figure{margin:0;cursor:pointer}
+  .pair-card .duo img{width:100%;height:150px;object-fit:cover;border-radius:7px;display:block;border:1px solid var(--line)}
+  .pair-card .duo figcaption{font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pair-card .why{font-size:12.5px;color:var(--dim);margin-top:9px}
+  .pair-card .actions{margin-top:9px}
+  .pair-card .actions button{
+    font-size:11.5px;color:var(--dim);border:1px solid var(--line);border-radius:6px;padding:4px 10px;
+  }
+  .pair-card .actions button:hover{color:var(--ink);border-color:#55504a}
+
+  /* ============ CAROUSEL PLAN ============ */
+  .caro-strip{display:flex;gap:14px;overflow-x:auto;padding:16px 4px 20px}
+  .slide{
+    flex:none;width:250px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;
+  }
+  .slide .slide-num{
+    font-family:var(--mono);font-size:11px;color:var(--accent);padding:7px 11px 3px;letter-spacing:.1em;
+  }
+  .slide img{width:100%;aspect-ratio:4/5;object-fit:cover;display:block;background:var(--bg-deep)}
+  .slide .slide-cap{font-size:12px;color:var(--dim);padding:9px 11px 12px;min-height:44px}
+  .mode-note{
+    font-size:13px;color:var(--dim);background:var(--panel);border:1px solid var(--line);
+    border-left:3px solid var(--accent);border-radius:8px;padding:10px 14px;margin-bottom:8px;
+  }
+  .mode-note b{color:var(--ink)}
+
+  /* ============ ZINE ============ */
+  .zine-wrap{display:flex;flex-direction:column;gap:26px;align-items:center;padding-top:10px}
+  .spread{display:flex;gap:3px;box-shadow:var(--shadow)}
+  .page{
+    width:min(320px,42vw);aspect-ratio:3/4;background:#f4f0e6;color:#1a1815;
+    display:flex;flex-direction:column;padding:16px;position:relative;
+  }
+  .page.cover{background:#181614;color:var(--ink)}
+  .page img{width:100%;flex:1;object-fit:cover;min-height:0}
+  .page .pg-cap{font-size:10px;font-family:var(--mono);margin-top:8px;color:#5c564c;min-height:12px}
+  .page.cover .pg-cap{color:var(--dim)}
+  .page .pg-num{position:absolute;bottom:5px;font-family:var(--mono);font-size:9px;color:#8a8478}
+  .page.left .pg-num{left:10px}
+  .page.right .pg-num{right:10px}
+  .page .pg-title{font-size:18px;font-weight:700;letter-spacing:.06em;margin:8px 0 2px}
+  .spread-label{font-family:var(--mono);font-size:11px;color:var(--faint);text-align:center;margin-top:6px}
+
+  /* ============ EXHIBITION WALL ============ */
+  .wall{
+    background:linear-gradient(180deg,#26231f 0%, #1b1916 70%, #12100e 100%);
+    border-radius:14px;padding:56px 40px 80px;min-height:60vh;
+    display:flex;flex-wrap:wrap;gap:42px;align-items:center;justify-content:center;
+    border:1px solid var(--line);position:relative;overflow:hidden;
+  }
+  .wall::before{
+    content:"";position:absolute;inset:0 0 auto 0;height:110px;
+    background:radial-gradient(ellipse 60% 100% at 50% -30%, rgba(255,244,214,.14), transparent 70%);
+    pointer-events:none;
+  }
+  .framed{text-align:center;cursor:pointer}
+  .framed .frame{
+    background:#0e0d0b;padding:10px;border:5px solid #030303;
+    box-shadow:0 18px 30px rgba(0,0,0,.55), inset 0 0 0 1px #3a362f;
+    display:inline-block;
+  }
+  .framed img{display:block;height:190px;width:auto;max-width:320px;object-fit:cover;background:#000}
+  .framed.big img{height:280px;max-width:460px}
+  .framed .plaque{
+    display:inline-block;margin-top:14px;background:#d9d3c5;color:#26221c;
+    font-size:10px;font-family:var(--mono);padding:5px 12px;border-radius:2px;max-width:280px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+
+  /* ============ SIDE PANEL ============ */
+  aside#panel{
+    width:340px;flex:none;background:var(--panel);border-left:1px solid var(--line);
+    overflow-y:auto;display:none;
+  }
+  aside#panel.open{display:block}
+  .panel-inner{padding:16px 18px 40px}
+  .panel-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+  .panel-top h3{margin:0;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-family:var(--mono)}
+  .panel-close{font-size:20px;color:var(--dim);padding:2px 8px;border-radius:6px}
+  .panel-close:hover{color:var(--ink);background:var(--card-hi)}
+  .panel-photo{border-radius:9px;overflow:hidden;border:1px solid var(--line);background:var(--bg-deep)}
+  .panel-photo img{width:100%;display:block;max-height:260px;object-fit:contain;background:var(--bg-deep)}
+  .panel-fname{font-family:var(--mono);font-size:11px;color:var(--dim);margin:8px 0 2px;word-break:break-all}
+  .panel-dims{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-bottom:12px}
+  .fld{margin-bottom:12px}
+  .fld label{
+    display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--dim);margin-bottom:4px;
+  }
+  .fld input,.fld textarea{
+    width:100%;background:var(--bg);border:1px solid var(--line);border-radius:7px;
+    padding:8px 10px;font-size:13.5px;resize:vertical;
+  }
+  .fld input:focus,.fld textarea:focus{border-color:var(--accent);outline:none}
+  .fld textarea{min-height:60px}
+  .tag-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+  .tag{
+    font-size:11.5px;font-family:var(--mono);padding:4px 10px;border-radius:999px;
+    border:1px solid var(--line);color:var(--dim);
+  }
+  .tag:hover{color:var(--ink);border-color:#55504a}
+  .tag.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+  .panel-rating{display:flex;gap:6px;margin:4px 0 16px;flex-wrap:wrap}
+  .panel-section-label{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--faint);margin:18px 0 8px;border-top:1px solid var(--line);padding-top:14px;
+  }
+
+  /* ============ TOASTS ============ */
+  #toasts{position:fixed;bottom:52px;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
+  .toast{
+    background:var(--card-hi);border:1px solid #4a463f;color:var(--ink);
+    padding:9px 18px;border-radius:999px;font-size:13px;box-shadow:var(--shadow);
+    animation:toast-in .18s ease-out;
+  }
+  @keyframes toast-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+  /* ============ RESTORE BANNER ============ */
+  .restore-banner{
+    display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+    background:rgba(127,196,232,.08);border:1px solid rgba(127,196,232,.35);
+    border-radius:10px;padding:12px 16px;margin-bottom:18px;font-size:13.5px;color:var(--dim);
+  }
+  .restore-banner b{color:var(--open)}
+  .restore-banner button{margin-left:auto}
+
+  /* ============ PRINT ============ */
+  #printArea{display:none}
+  @media print{
+    body{background:#fff}
+    #app,#dropOverlay,#toasts{display:none !important}
+    #printArea{display:block;color:#111;font-family:var(--sans)}
+    #printArea h1{font-size:18px;margin:0 0 2px}
+    #printArea .pr-sub{font-size:11px;color:#666;margin-bottom:14px;font-family:var(--mono)}
+    .pr-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+    .pr-cell{break-inside:avoid;font-size:9px;font-family:var(--mono);color:#444}
+    .pr-cell img{width:100%;aspect-ratio:4/3;object-fit:cover;border:1px solid #ccc}
+    .pr-cell .pr-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+    .pr-seq-item{break-inside:avoid;display:flex;gap:14px;margin-bottom:18px;border-bottom:1px solid #ddd;padding-bottom:14px}
+    .pr-seq-item img{width:270px;max-height:210px;object-fit:contain;border:1px solid #ccc;align-self:flex-start}
+    .pr-seq-meta{font-size:11px;flex:1}
+    .pr-seq-meta .pr-sec{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#888}
+    .pr-seq-meta h3{margin:2px 0 6px;font-size:13px}
+    .pr-seq-meta p{margin:2px 0;color:#333}
+    .pr-seq-meta .lbl{color:#999;font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.08em}
+  }
+
+  /* ============ RESPONSIVE ============ */
+  @media (max-width:860px){
+    aside#panel{
+      position:fixed;inset:auto 0 0 0;width:100%;max-height:72vh;
+      border-left:none;border-top:1px solid var(--line);border-radius:16px 16px 0 0;z-index:80;
+      box-shadow:0 -12px 40px rgba(0,0,0,.6);
+    }
+    #viewport{padding:14px 12px 90px}
+    .statusbar .kbd-hint{display:none}
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="bulb"></div>
+      <h1>LIGHTBOX LAB<small>photo story sequencer</small></h1>
+    </div>
+
+    <nav class="modes" id="modeTabs" role="tablist">
+      <button data-mode="sheet"    role="tab" aria-selected="true">Contact Sheet</button>
+      <button data-mode="timeline" role="tab" aria-selected="false">Story Timeline</button>
+      <button data-mode="pairs"    role="tab" aria-selected="false">Pairings</button>
+      <button data-mode="carousel" role="tab" aria-selected="false">Carousel Plan</button>
+      <button data-mode="zine"     role="tab" aria-selected="false">Zine</button>
+      <button data-mode="wall"     role="tab" aria-selected="false">Exhibition Wall</button>
+    </nav>
+
+    <div class="spacer"></div>
+
+    <button class="tb-btn" id="shuffleBtn" title="Build a surprise sequence from your Keep + Maybe photos">🎲 Shuffle Story</button>
+
+    <div class="menu-wrap">
+      <button class="tb-btn" id="exportBtn">⇩ Export ▾</button>
+      <div class="menu" id="exportMenu">
+        <button data-export="print-sheet">🖨 Print contact sheet</button>
+        <button data-export="print-seq">🖨 Print story sequence</button>
+        <div class="sep"></div>
+        <button data-export="captions-json">📝 Export captions as JSON</button>
+        <button data-export="backup">💾 Download project backup (JSON)</button>
+        <button data-export="import">📂 Import project backup…</button>
+        <div class="sep"></div>
+        <div class="hint">Backups store ratings, captions &amp; sequence — never your image files. Originals stay untouched on your computer.</div>
+      </div>
+    </div>
+
+    <button class="tb-btn primary" id="addBtn">+ Add Photos</button>
+  </header>
+
+  <main>
+    <div id="viewport" aria-live="polite"></div>
+
+    <aside id="panel" aria-label="Photo details">
+      <div class="panel-inner" id="panelInner"></div>
+    </aside>
+  </main>
+
+  <footer class="statusbar">
+    <span id="stCount">0 photos</span>
+    <span><span class="dot" style="background:var(--keep)"></span><span id="stKeep">0 keep</span></span>
+    <span><span class="dot" style="background:var(--maybe)"></span><span id="stMaybe">0 maybe</span></span>
+    <span><span class="dot" style="background:var(--reject)"></span><span id="stReject">0 reject</span></span>
+    <span id="stStory">story: 0</span>
+    <span class="kbd-hint">
+      <kbd>1</kbd> keep <kbd>2</kbd> maybe <kbd>3</kbd> reject <kbd>H</kbd> hero <kbd>O</kbd> opening <kbd>C</kbd> closing <kbd>Esc</kbd> close panel
+    </span>
+  </footer>
+</div>
+
+<div id="dropOverlay">
+  <div class="zone">
+    Drop your photos on the lightbox
+    <small>They load straight from your computer — nothing is uploaded, ever.</small>
+  </div>
+</div>
+
+<div id="toasts"></div>
+<div id="printArea"></div>
+
+<input type="file" id="fileInput" accept="image/*" multiple hidden>
+<input type="file" id="importInput" accept="application/json,.json" hidden>
+
+<script>
+(function(){
+"use strict";
+
+/* =====================================================================
+   STATE
+   Photos are identified by a stable fingerprint (name + byte size) so a
+   saved project reconnects automatically when the same files are
+   dropped back in. Original files are never modified in any way — we
+   only read them to draw thumbnails in memory.
+===================================================================== */
+
+const SECTIONS = [
+  {key:"opening", label:"Opening",  desc:"Set the scene. Your strongest invitation in."},
+  {key:"place",   label:"Place",    desc:"Where are we? Landscape, street, room, ground."},
+  {key:"people",  label:"People",   desc:"Who lives in this story? Portraits and presence."},
+  {key:"action",  label:"Action",   desc:"Something happens. Movement, work, play."},
+  {key:"detail",  label:"Detail",   desc:"Come in close. Hands, textures, small objects."},
+  {key:"emotion", label:"Emotion",  desc:"The feeling underneath. Quiet, joy, tension."},
+  {key:"ending",  label:"Ending",   desc:"Leave the reader with something that lasts."},
+];
+const SECTION_KEYS = SECTIONS.map(s=>s.key);
+const TAGS = ["wide","portrait","detail","environment","action","quiet"];
+const RATINGS = ["keep","maybe","reject"];
+const ROLES = ["hero","opening","closing"];
+const LS_KEY = "lightboxlab-project-v1";
+
+const state = {
+  photos: [],            // runtime photo objects (see ingest)
+  byId: new Map(),
+  meta: {},              // id -> {rating, caption, location, date, people, memory, why, tags[]}
+  roles: {hero:null, opening:null, closing:null},   // id or null
+  timeline: Object.fromEntries(SECTION_KEYS.map(k=>[k,[]])),
+  thumbs: {},            // id -> small dataURL (survives reload / travels in backups)
+  order: [],             // contact-sheet order of ids
+  mode: "sheet",
+  filter: "all",
+  activeId: null,
+  panelOpen: false,
+  thumbSize: 210,
+  pairSeed: 1,
+};
+
+const $  = (sel,root)=> (root||document).querySelector(sel);
+const $$ = (sel,root)=> Array.from((root||document).querySelectorAll(sel));
+const viewport = $("#viewport");
+const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function meta(id){
+  if(!state.meta[id]) state.meta[id] = {rating:null,caption:"",location:"",date:"",people:"",memory:"",why:"",tags:[]};
+  return state.meta[id];
+}
+function photo(id){ return state.byId.get(id) || null; }
+function fingerprint(file){ return file.name + "::" + file.size; }
+function loadedIds(){ return state.order.filter(id=>state.byId.has(id)); }
+function thumbSrc(id){
+  const p = photo(id);
+  return (p && p.url) || state.thumbs[id] || null;
+}
+function roleOf(id){
+  for(const r of ROLES) if(state.roles[r]===id) return r;
+  return null;
+}
+
+/* =====================================================================
+   PERSISTENCE (localStorage — metadata & small thumbs only)
+===================================================================== */
+let saveTimer = null;
+function save(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{
+    const data = {
+      v:1, savedAt:new Date().toISOString(),
+      meta:state.meta, roles:state.roles, timeline:state.timeline, order:state.order,
+    };
+    try{
+      localStorage.setItem(LS_KEY, JSON.stringify({...data, thumbs:state.thumbs}));
+    }catch(e){
+      // thumbnails can exceed the quota — keep the essential data at least
+      try{ localStorage.setItem(LS_KEY, JSON.stringify(data)); }catch(e2){}
+    }
+  }, 250);
+}
+function loadSaved(){
+  try{
+    const raw = localStorage.getItem(LS_KEY);
+    if(!raw) return;
+    const d = JSON.parse(raw);
+    if(d.meta) state.meta = d.meta;
+    if(d.roles) state.roles = {hero:null,opening:null,closing:null, ...d.roles};
+    if(d.timeline) for(const k of SECTION_KEYS) state.timeline[k] = (d.timeline[k]||[]).slice();
+    if(d.thumbs) state.thumbs = d.thumbs;
+    if(Array.isArray(d.order)) state.order = d.order.slice();
+  }catch(e){ console.warn("Could not read saved project", e); }
+}
+
+/* =====================================================================
+   INGEST — drag & drop / file picker. Local object URLs only.
+===================================================================== */
+async function ingestFiles(fileList){
+  const files = Array.from(fileList).filter(f=>f.type.startsWith("image/"));
+  if(!files.length){ toast("No image files found in that drop."); return; }
+  let added = 0, relinked = 0, dupes = 0;
+
+  for(const file of files){
+    const id = fingerprint(file);
+    if(state.byId.has(id)){ dupes++; continue; }
+    const url = URL.createObjectURL(file);
+    let dims;
+    try{ dims = await readImage(url); }
+    catch(e){ URL.revokeObjectURL(url); continue; }
+
+    const p = {
+      id, name:file.name, size:file.size, lastModified:file.lastModified,
+      url, w:dims.w, h:dims.h,
+      aspect: dims.w/dims.h >= 1.25 ? "wide" : (dims.w/dims.h <= 0.85 ? "tall" : "square"),
+      hue:dims.hue, sat:dims.sat, luma:dims.luma,
+    };
+    state.byId.set(id, p);
+    state.photos.push(p);
+    const known = state.order.includes(id);
+    if(!known) state.order.push(id);
+    if(!state.thumbs[id] && dims.thumb) state.thumbs[id] = dims.thumb;
+    if(known) relinked++; else added++;
+  }
+
+  save();
+  render();
+  const bits = [];
+  if(added) bits.push(added + " photo" + (added>1?"s":"") + " added");
+  if(relinked) bits.push(relinked + " reconnected to saved edits");
+  if(dupes) bits.push(dupes + " already on the table");
+  if(bits.length) toast(bits.join(" · "));
+}
+
+function readImage(url){
+  return new Promise((resolve,reject)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const w = img.naturalWidth, h = img.naturalHeight;
+      // small thumbnail + average colour (in memory only — original untouched)
+      const T = 300;
+      const scale = Math.min(1, T/Math.max(w,h));
+      const cw = Math.max(1,Math.round(w*scale)), ch = Math.max(1,Math.round(h*scale));
+      const cv = document.createElement("canvas");
+      cv.width = cw; cv.height = ch;
+      const ctx = cv.getContext("2d");
+      ctx.drawImage(img, 0, 0, cw, ch);
+      let thumb = null, hue = 0, sat = 0, luma = 50;
+      try{
+        thumb = cv.toDataURL("image/jpeg", 0.7);
+        const d = ctx.getImageData(0,0,cw,ch).data;
+        let r=0,g=0,b=0,n=0;
+        const step = Math.max(4, Math.floor(d.length/4/900))*4;
+        for(let i=0;i<d.length;i+=step){ r+=d[i]; g+=d[i+1]; b+=d[i+2]; n++; }
+        r/=n; g/=n; b/=n;
+        const hsl = rgbToHsl(r,g,b);
+        hue = hsl[0]; sat = hsl[1]; luma = hsl[2];
+      }catch(e){ /* tainted canvas etc. — fine, colour matching just skips it */ }
+      resolve({w,h,thumb,hue,sat,luma});
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+function rgbToHsl(r,g,b){
+  r/=255; g/=255; b/=255;
+  const mx = Math.max(r,g,b), mn = Math.min(r,g,b);
+  let h=0, s=0; const l=(mx+mn)/2;
+  if(mx!==mn){
+    const d = mx-mn;
+    s = l>0.5 ? d/(2-mx-mn) : d/(mx+mn);
+    switch(mx){
+      case r: h=(g-b)/d + (g<b?6:0); break;
+      case g: h=(b-r)/d + 2; break;
+      default: h=(r-g)/d + 4;
+    }
+    h*=60;
+  }
+  return [Math.round(h), Math.round(s*100), Math.round(l*100)];
+}
+
+/* =====================================================================
+   RATINGS, ROLES, STORY HELPERS
+===================================================================== */
+function setRating(id, rating){
+  const m = meta(id);
+  m.rating = (m.rating === rating) ? null : rating;
+  if(m.rating === "reject") removeFromStory(id);
+  save(); render(); renderPanel();
+}
+function setRole(id, role){
+  if(state.roles[role] === id){ state.roles[role] = null; }
+  else {
+    for(const r of ROLES) if(state.roles[r]===id) state.roles[r]=null; // one role per photo
+    state.roles[role] = id;                                            // one photo per role
+    const m = meta(id);
+    if(!m.rating || m.rating==="reject") m.rating = "keep";            // a starring photo is a keeper
+  }
+  save(); render(); renderPanel();
+}
+function removeFromStory(id){
+  for(const k of SECTION_KEYS){
+    state.timeline[k] = state.timeline[k].filter(x=>x!==id);
+  }
+}
+function storyOrder(){
+  const seen = new Set(); const out = [];
+  for(const k of SECTION_KEYS) for(const id of state.timeline[k]){
+    if(!seen.has(id)){ seen.add(id); out.push({id, section:k}); }
+  }
+  return out;
+}
+function storyCount(){ return storyOrder().length; }
+function selects(){
+  return state.order.filter(id=>{
+    const r = meta(id).rating;
+    return r==="keep" || r==="maybe";
+  });
+}
+
+/* =====================================================================
+   SHUFFLE STORY
+===================================================================== */
+function shuffleStory(){
+  const pool = selects().filter(id=>thumbSrc(id));
+  if(pool.length < 2){
+    toast("Mark at least two photos Keep or Maybe first — then I can shuffle.");
+    return;
+  }
+  if(storyCount() > 0 && !confirm("Shuffle Story will replace your current timeline with a random sequence built from Keep + Maybe photos.\n\nGo ahead?")) return;
+
+  const shuffled = pool.slice();
+  for(let i=shuffled.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [shuffled[i],shuffled[j]]=[shuffled[j],shuffled[i]];
+  }
+  for(const k of SECTION_KEYS) state.timeline[k] = [];
+  // spread across sections in reading order so every act gets a beat
+  const per = Math.max(1, Math.ceil(shuffled.length / SECTION_KEYS.length));
+  let s = 0;
+  shuffled.forEach((id,i)=>{
+    state.timeline[SECTION_KEYS[s]].push(id);
+    if((i+1) % per === 0 && s < SECTION_KEYS.length-1) s++;
+  });
+  save();
+  state.mode = "timeline";
+  render();
+  toast("🎲 Shuffled " + shuffled.length + " photos into a fresh sequence. What do you notice?");
+}
+
+/* =====================================================================
+   PAIRING SUGGESTIONS
+===================================================================== */
+function seededPick(arr, seed){
+  if(!arr.length) return null;
+  return arr[Math.abs((seed*2654435761)>>>0) % arr.length];
+}
+function tagOrAspect(id, tag, aspects){
+  const m = meta(id); const p = photo(id);
+  if(m.tags.includes(tag)) return true;
+  if(p && aspects && aspects.includes(p.aspect)) return true;
+  return false;
+}
+function pairSuggestions(){
+  const pool = state.order.filter(id => thumbSrc(id) && meta(id).rating !== "reject");
+  const out = [];
+  const used = new Set();
+  const seed = state.pairSeed;
+  const take = (a,b,rule,why)=>{
+    if(!a || !b || a===b) return false;
+    const key = [a,b].sort().join("|") ;
+    if(used.has(key)) return false;
+    used.add(key); out.push({a,b,rule,why}); return true;
+  };
+  const withTag = t => pool.filter(id=>meta(id).tags.includes(t));
+
+  // 1 — Wide + Detail
+  {
+    const wides = pool.filter(id=>tagOrAspect(id,"wide",["wide"]));
+    const dets  = withTag("detail");
+    take(seededPick(wides,seed+1), seededPick(dets,seed+2), "Wide + Detail",
+      "Establish the scene, then reward the reader with a close look.");
+  }
+  // 2 — Portrait + Environment
+  {
+    const ports = pool.filter(id=>tagOrAspect(id,"portrait",["tall"]));
+    const envs  = pool.filter(id=>tagOrAspect(id,"environment",["wide"]));
+    take(seededPick(ports,seed+3), seededPick(envs,seed+4), "Portrait + Environment",
+      "A face and the world it belongs to — classic documentary rhythm.");
+  }
+  // 3 — Action + Quiet moment
+  {
+    take(seededPick(withTag("action"),seed+5), seededPick(withTag("quiet"),seed+6), "Action + Quiet",
+      "Let the energy land, then give the reader a breath.");
+  }
+  // 4 — Opening + Closing
+  take(state.roles.opening, state.roles.closing, "Opening + Closing",
+    "Your bookends side by side. Do they talk to each other?");
+  // 5 — Hero + supporting image
+  {
+    const support = pool.filter(id=>id!==state.roles.hero && meta(id).rating==="keep");
+    take(state.roles.hero, seededPick(support,seed+7), "Hero + Support",
+      "Your strongest frame, plus a keeper that deepens it.");
+  }
+  // 6 — Colour matches (average hue proximity)
+  {
+    const colored = pool.map(photo).filter(p=>p && p.sat>=14);
+    const matches = [];
+    for(let i=0;i<colored.length;i++) for(let j=i+1;j<colored.length;j++){
+      let dh = Math.abs(colored[i].hue - colored[j].hue);
+      dh = Math.min(dh, 360-dh);
+      if(dh <= 18) matches.push({a:colored[i].id, b:colored[j].id, dh});
+    }
+    matches.sort((x,y)=>x.dh-y.dh);
+    for(const mch of matches.slice(0,8)){
+      if(take(mch.a, mch.b, "Colour Match", "These two share a palette — sequences flow when colours echo.")) {
+        if(out.filter(p=>p.rule==="Colour Match").length>=2) break;
+      }
+    }
+  }
+  // 7 — Similar light (luma proximity, different aspect = visual variety)
+  {
+    const ps = pool.map(photo).filter(Boolean);
+    let best = null;
+    for(let i=0;i<ps.length;i++) for(let j=i+1;j<ps.length;j++){
+      if(ps[i].aspect === ps[j].aspect) continue;
+      const dl = Math.abs(ps[i].luma - ps[j].luma);
+      if(dl<=8 && (!best || dl<best.dl)) best = {a:ps[i].id, b:ps[j].id, dl};
+    }
+    if(best) take(best.a, best.b, "Similar Light", "Matched brightness, different shapes — a quiet, elegant spread.");
+  }
+  return out;
+}
+
+/* =====================================================================
+   RENDER — router
+===================================================================== */
+function render(){
+  const st = {sheet:renderSheet, timeline:renderTimeline, pairs:renderPairs,
+              carousel:renderCarousel, zine:renderZine, wall:renderWall};
+  $$("#modeTabs button").forEach(b=>b.setAttribute("aria-selected", String(b.dataset.mode===state.mode)));
+  const scroll = viewport.scrollTop;
+  (st[state.mode]||renderSheet)();
+  viewport.scrollTop = scroll;
+  renderStatus();
+}
+function renderStatus(){
+  const total = state.order.filter(id=>thumbSrc(id)).length;
+  const counts = {keep:0,maybe:0,reject:0};
+  for(const id of state.order){ const r = meta(id).rating; if(counts[r]!=null) counts[r]++; }
+  $("#stCount").textContent  = total + " photo" + (total===1?"":"s");
+  $("#stKeep").textContent   = counts.keep + " keep";
+  $("#stMaybe").textContent  = counts.maybe + " maybe";
+  $("#stReject").textContent = counts.reject + " reject";
+  $("#stStory").textContent  = "story: " + storyCount();
+}
+
+function emptyStateHTML(){
+  return `
+  <div class="empty-state">
+    <div class="big-drop" id="bigDrop" role="button" tabindex="0" aria-label="Add photos">
+      <div class="film">▣ ▣ ▣ ▣</div>
+      <h2>Welcome to the lightbox</h2>
+      <p>Drag a folder of photos anywhere on this page,<br>or click here to choose files.</p>
+      <p class="privacy-note">🔒 100% local. No uploads, no accounts, no internet needed.<br>Your original files are never changed, moved or resized.</p>
+    </div>
+    <ol class="steps">
+      <li><b>Edit</b> — rate each photo Keep / Maybe / Reject on the contact sheet.</li>
+      <li><b>Star</b> — pick a Hero, an Opening and a Closing image.</li>
+      <li><b>Sequence</b> — drag your selects into the Story Timeline sections.</li>
+      <li><b>Play</b> — try Pairings and 🎲 Shuffle Story to find surprises.</li>
+      <li><b>Share</b> — preview as carousel, zine or wall, then print or export.</li>
+    </ol>
+  </div>`;
+}
+function restoreBannerHTML(){
+  const missing = state.order.filter(id=>!state.byId.has(id));
+  if(!missing.length) return "";
+  const withThumb = missing.filter(id=>state.thumbs[id]).length;
+  return `
+  <div class="restore-banner">
+    <span>📁 <b>${missing.length}</b> photo${missing.length>1?"s":""} from your saved project ${missing.length>1?"are":"is"} not loaded in this session${withThumb?" (showing saved thumbnails)":""}.
+    Drop the same files back in to reconnect them — all ratings and captions are kept.</span>
+    <button class="tb-btn" id="restoreForget">Forget missing</button>
+  </div>`;
+}
+
+/* =====================================================================
+   VIEW — CONTACT SHEET
+===================================================================== */
+function renderSheet(){
+  const ids = state.order.filter(id=>{
+    if(!thumbSrc(id)) return false;
+    if(state.filter==="all") return true;
+    if(state.filter==="unrated") return !meta(id).rating;
+    if(state.filter==="selects") return ["keep","maybe"].includes(meta(id).rating);
+    return meta(id).rating === state.filter;
+  });
+  const anyPhotos = state.order.some(id=>thumbSrc(id));
+
+  if(!anyPhotos){
+    viewport.innerHTML = restoreBannerHTML() + emptyStateHTML();
+    wireEmptyState();
+    return;
+  }
+
+  const filters = [["all","All"],["unrated","Unrated"],["keep","Keep"],["maybe","Maybe"],["reject","Reject"],["selects","Selects"]];
+  viewport.innerHTML = restoreBannerHTML() + `
+    <div class="sheet-tools">
+      <span class="count-pill">${ids.length} shown</span>
+      <div class="filter-group">
+        ${filters.map(([k,l])=>`<button data-filter="${k}" class="${state.filter===k?"on":""}">${l}</button>`).join("")}
+      </div>
+      <span class="zoom">thumb size <input type="range" id="zoomRange" min="140" max="340" step="10" value="${state.thumbSize}"></span>
+    </div>
+    <div class="grid" style="--thumb-size:${state.thumbSize}px" id="sheetGrid">
+      ${ids.map(cardHTML).join("")}
+    </div>
+    ${ids.length===0 ? `<div class="empty-state"><p>No photos match this filter. Try <b>All</b>, or rate a few more frames.</p></div>` : ""}
+  `;
+  wireCommon();
+  $$("[data-filter]").forEach(b=>b.addEventListener("click",()=>{ state.filter=b.dataset.filter; render(); }));
+  const zr = $("#zoomRange");
+  if(zr) zr.addEventListener("input", ()=>{
+    state.thumbSize = +zr.value;
+    const g = $("#sheetGrid"); if(g) g.style.setProperty("--thumb-size", state.thumbSize+"px");
+  });
+  wireCards();
+}
+function cardHTML(id){
+  const m = meta(id);
+  const p = photo(id);
+  const src = thumbSrc(id);
+  const role = roleOf(id);
+  const hasCaption = m.caption || m.memory || m.why;
+  const name = p ? p.name : id.split("::")[0];
+  return `
+  <div class="card ${m.rating?("rating-"+m.rating):""} ${state.activeId===id?"active":""}" data-id="${esc(id)}" draggable="true" tabindex="0">
+    <div class="thumb-box">
+      ${src ? `<img src="${src}" alt="${esc(name)}" loading="lazy" decoding="async">`
+            : `<div class="missing">🗂 ${esc(name)}<br>(drop file to reload)</div>`}
+      <div class="role-flags">${role?`<span class="flag ${role}">${role.toUpperCase()}</span>`:""}</div>
+      <div class="rate-strip">${m.rating?`<span class="rate-dot ${m.rating}"></span>`:""}</div>
+    </div>
+    <div class="meta">
+      <span class="fname" title="${esc(name)}">${esc(name)}</span>
+      ${hasCaption?`<span class="cap-mark" title="Has caption notes">✎</span>`:""}
+    </div>
+    <div class="controls">
+      <button class="ctl ${m.rating==="keep"?"on-keep":""}"   data-act="rate" data-val="keep">KEEP</button>
+      <button class="ctl ${m.rating==="maybe"?"on-maybe":""}" data-act="rate" data-val="maybe">MAYBE</button>
+      <button class="ctl ${m.rating==="reject"?"on-reject":""}" data-act="rate" data-val="reject">REJ</button>
+      <button class="ctl ${role==="hero"?"on-hero":""}"     data-act="role" data-val="hero" title="Hero image">★H</button>
+      <button class="ctl ${role==="opening"?"on-opening":""}" data-act="role" data-val="opening" title="Opening image">⇤O</button>
+      <button class="ctl ${role==="closing"?"on-closing":""}" data-act="role" data-val="closing" title="Closing image">⇥C</button>
+    </div>
+  </div>`;
+}
+function wireCards(){
+  $$(".card").forEach(card=>{
+    const id = card.dataset.id;
+    card.addEventListener("click", e=>{
+      const btn = e.target.closest("[data-act]");
+      if(btn){
+        e.stopPropagation();
+        if(btn.dataset.act==="rate") setRating(id, btn.dataset.val);
+        else setRole(id, btn.dataset.val);
+        return;
+      }
+      state.activeId = id;
+      openPanel(id);
+      render();
+    });
+    card.addEventListener("dragstart", e=>{
+      dragState = {id, fromSection:null, fromIndex:null};
+      e.dataTransfer.setData("text/plain", id);
+      e.dataTransfer.effectAllowed = "copyMove";
+      card.classList.add("dragging");
+    });
+    card.addEventListener("dragend", ()=>card.classList.remove("dragging"));
+  });
+}
+
+/* =====================================================================
+   VIEW — STORY TIMELINE
+===================================================================== */
+function renderTimeline(){
+  const anyPhotos = state.order.some(id=>thumbSrc(id));
+  if(!anyPhotos){
+    viewport.innerHTML = restoreBannerHTML() + emptyStateHTML();
+    wireEmptyState();
+    return;
+  }
+  const placed = new Set(storyOrder().map(x=>x.id));
+  const trayIds = selects().filter(id=>!placed.has(id) && thumbSrc(id));
+
+  viewport.innerHTML = restoreBannerHTML() + `
+    <div class="tl-head">
+      <h2>Story Timeline</h2>
+      <span class="sub">Drag photos from the selects tray (or the contact sheet) into each act. Drag within a section to reorder.</span>
+    </div>
+    <div class="tray" id="tray">
+      <div class="tray-label">
+        <span>Selects tray — Keep &amp; Maybe photos not yet placed (${trayIds.length})</span>
+        <span>drop a timeline photo here to remove it from the story</span>
+      </div>
+      <div class="tray-strip" id="trayStrip">
+        ${trayIds.length ? trayIds.map(id=>{
+          const m = meta(id);
+          return `<div class="chip" draggable="true" data-id="${esc(id)}" title="${esc(photo(id)?photo(id).name:id)}">
+            <img src="${thumbSrc(id)}" alt="" loading="lazy">
+            <span class="mini-dot" style="background:var(--${m.rating==="keep"?"keep":"maybe"})"></span>
+          </div>`;
+        }).join("") : `<div class="hint">${selects().length===0
+            ? "No selects yet — go to the Contact Sheet and mark photos Keep or Maybe (keys 1 / 2)."
+            : "Every select is placed in the story. Nice edit. ✂"}</div>`}
+      </div>
+    </div>
+    <div class="sections">
+      ${SECTIONS.map(sec=>{
+        const items = state.timeline[sec.key].filter(id=>thumbSrc(id));
+        return `
+        <div class="section" data-section="${sec.key}">
+          <div class="sec-head">
+            <span class="tape">${sec.label}</span>
+            <span class="sec-desc">${sec.desc}</span>
+            <span class="sec-count">${items.length} photo${items.length===1?"":"s"}</span>
+          </div>
+          <div class="sec-body" data-section="${sec.key}">
+            ${items.length ? items.map((id,i)=>tlItemHTML(id, sec.key, i)).join("")
+                           : `<div class="placeholder">Drop photos here…</div>`}
+          </div>
+        </div>`;
+      }).join("")}
+    </div>
+  `;
+  wireCommon();
+  wireTimelineDnD();
+}
+function tlItemHTML(id, secKey, index){
+  const m = meta(id);
+  const p = photo(id);
+  return `
+  <div class="tl-item" draggable="true" data-id="${esc(id)}" data-section="${secKey}" data-index="${index}">
+    <img src="${thumbSrc(id)}" alt="" loading="lazy">
+    <button class="rm" title="Remove from story" data-rm="${esc(id)}">✕</button>
+    <div class="tl-cap">${esc(m.caption || (p?p.name:id.split("::")[0]))}</div>
+  </div>`;
+}
+
+let dragState = null;
+function wireTimelineDnD(){
+  // draggable sources: tray chips + timeline items
+  $$("#trayStrip .chip").forEach(chip=>{
+    chip.addEventListener("dragstart", e=>{
+      dragState = {id:chip.dataset.id, fromSection:null, fromIndex:null};
+      e.dataTransfer.setData("text/plain", chip.dataset.id);
+      chip.classList.add("dragging");
+    });
+    chip.addEventListener("dragend", ()=>chip.classList.remove("dragging"));
+    chip.addEventListener("click", ()=>{ openPanel(chip.dataset.id); });
+  });
+  $$(".tl-item").forEach(item=>{
+    item.addEventListener("dragstart", e=>{
+      dragState = {id:item.dataset.id, fromSection:item.dataset.section, fromIndex:+item.dataset.index};
+      e.dataTransfer.setData("text/plain", item.dataset.id);
+      item.classList.add("dragging");
+      e.stopPropagation();
+    });
+    item.addEventListener("dragend", ()=>item.classList.remove("dragging"));
+    item.addEventListener("click", e=>{
+      if(e.target.closest("[data-rm]")) return;
+      openPanel(item.dataset.id);
+    });
+  });
+  $$("[data-rm]").forEach(btn=>btn.addEventListener("click", e=>{
+    e.stopPropagation();
+    removeFromStory(btn.dataset.rm);
+    save(); render();
+  }));
+
+  // drop targets: section bodies
+  $$(".sec-body").forEach(body=>{
+    body.addEventListener("dragover", e=>{
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      body.classList.add("drag-over");
+    });
+    body.addEventListener("dragleave", e=>{
+      if(!body.contains(e.relatedTarget)) body.classList.remove("drag-over");
+    });
+    body.addEventListener("drop", e=>{
+      e.preventDefault();
+      body.classList.remove("drag-over");
+      const id = (dragState && dragState.id) || e.dataTransfer.getData("text/plain");
+      if(!id || !thumbSrc(id)) return;
+      const sec = body.dataset.section;
+      // figure out insertion index from pointer x
+      const items = $$(".tl-item", body).filter(el=>el.dataset.id!==id);
+      let idx = items.length;
+      for(let i=0;i<items.length;i++){
+        const r = items[i].getBoundingClientRect();
+        if(e.clientX < r.left + r.width/2){ idx = i; break; }
+      }
+      removeFromStory(id);
+      state.timeline[sec].splice(idx, 0, id);
+      const m = meta(id);
+      if(!m.rating) m.rating = "maybe"; // placing an unrated photo implies it's in play
+      dragState = null;
+      save(); render();
+    });
+  });
+
+  // tray = remove-from-story drop target
+  const tray = $("#tray");
+  if(tray){
+    tray.addEventListener("dragover", e=>{ e.preventDefault(); });
+    tray.addEventListener("drop", e=>{
+      e.preventDefault();
+      const id = (dragState && dragState.id) || e.dataTransfer.getData("text/plain");
+      if(id && dragState && dragState.fromSection){
+        removeFromStory(id);
+        save(); render();
+      }
+      dragState = null;
+    });
+  }
+}
+
+/* =====================================================================
+   VIEW — PAIRINGS
+===================================================================== */
+function renderPairs(){
+  const anyPhotos = state.order.some(id=>thumbSrc(id));
+  if(!anyPhotos){
+    viewport.innerHTML = emptyStateHTML(); wireEmptyState(); return;
+  }
+  const pairs = pairSuggestions();
+  viewport.innerHTML = `
+    <div class="pair-head">
+      <h2>Pairing Suggestions</h2>
+      <button class="tb-btn" id="reshufflePairs">↻ New suggestions</button>
+    </div>
+    <div class="mode-note">
+      Pairs come from your <b>tags</b> (open a photo and tag it wide / portrait / detail / environment / action / quiet),
+      your <b>Hero / Opening / Closing</b> picks, and automatic <b>colour &amp; light analysis</b>. The more you tag, the smarter the pairs.
+    </div>
+    ${pairs.length ? `<div class="pairs-grid">
+      ${pairs.map((pr,i)=>`
+        <div class="pair-card">
+          <span class="rule">${esc(pr.rule)}</span>
+          <div class="duo">
+            ${[pr.a,pr.b].map(id=>`
+              <figure data-open="${esc(id)}">
+                <img src="${thumbSrc(id)}" alt="" loading="lazy">
+                <figcaption>${esc(photo(id)?photo(id).name:id.split("::")[0])}</figcaption>
+              </figure>`).join("")}
+          </div>
+          <div class="why">${esc(pr.why)}</div>
+          <div class="actions">
+            <button data-pair-to-tl="${i}">＋ Add pair to timeline (Detail section)</button>
+          </div>
+        </div>`).join("")}
+    </div>`
+    : `<div class="empty-state"><h2>No pairs yet</h2>
+        <p>Tag a few photos (click a photo → tag chips in the side panel) and pick your Hero, Opening and Closing images.<br>
+        Colour matches also appear automatically once a few photos are loaded.</p></div>`}
+  `;
+  wireCommon();
+  $("#reshufflePairs").addEventListener("click", ()=>{ state.pairSeed = (state.pairSeed+1)|0; render(); });
+  $$("[data-open]").forEach(f=>f.addEventListener("click", ()=>openPanel(f.dataset.open)));
+  $$("[data-pair-to-tl]").forEach(btn=>btn.addEventListener("click", ()=>{
+    const pr = pairs[+btn.dataset.pairToTl];
+    for(const id of [pr.a, pr.b]){
+      removeFromStory(id);
+      state.timeline.detail.push(id);
+      const m = meta(id); if(!m.rating) m.rating = "maybe";
+    }
+    save(); toast("Pair added to the Detail section.");
+    render();
+  }));
+}
+
+/* =====================================================================
+   VIEW — CAROUSEL / ZINE / WALL (built on story order)
+===================================================================== */
+function storyOrFallback(){
+  let seq = storyOrder().filter(x=>thumbSrc(x.id));
+  let fallback = false;
+  if(!seq.length){
+    seq = selects().filter(id=>thumbSrc(id)).map(id=>({id, section:null}));
+    fallback = true;
+  }
+  return {seq, fallback};
+}
+function seqEmptyHTML(what){
+  return `<div class="empty-state">
+    <h2>Nothing to show yet</h2>
+    <p>${what} is built from your <b>Story Timeline</b> (or, if that's empty, from your Keep + Maybe selects).</p>
+    <p>Rate a few photos, drag them into the timeline — or hit <b>🎲 Shuffle Story</b> for instant inspiration.</p>
+  </div>`;
+}
+
+function renderCarousel(){
+  const {seq, fallback} = storyOrFallback();
+  if(!seq.length){ viewport.innerHTML = seqEmptyHTML("The carousel plan"); wireCommon(); return; }
+  const slides = seq.slice(0,10);
+  viewport.innerHTML = `
+    <div class="tl-head"><h2>Instagram Carousel Plan</h2>
+      <span class="sub">${seq.length} photos in your story → first ${slides.length} become slides (Instagram allows 10).</span></div>
+    ${fallback?`<div class="mode-note">Showing your <b>selects</b> in contact-sheet order — build the Story Timeline to control this sequence.</div>`:""}
+    ${seq.length>10?`<div class="mode-note">⚠ ${seq.length-10} photo${seq.length-10>1?"s":""} won't fit — tighten the edit or plan a part two.</div>`:""}
+    <div class="caro-strip">
+      ${slides.map((x,i)=>{
+        const m = meta(x.id);
+        return `<div class="slide">
+          <div class="slide-num">SLIDE ${i+1} / ${slides.length}${x.section?` · ${x.section.toUpperCase()}`:""}</div>
+          <img src="${thumbSrc(x.id)}" alt="" loading="lazy" data-open="${esc(x.id)}" style="cursor:pointer">
+          <div class="slide-cap">${esc(m.caption || "No caption yet — click the photo to write one.")}</div>
+        </div>`;
+      }).join("")}
+    </div>
+    <div class="mode-note">Tip: slide 1 should stop the scroll (your Hero or Opening), and the last slide should invite a response.</div>
+  `;
+  wireCommon();
+  $$("[data-open]").forEach(el=>el.addEventListener("click", ()=>openPanel(el.dataset.open)));
+}
+
+function renderZine(){
+  const {seq, fallback} = storyOrFallback();
+  if(!seq.length){ viewport.innerHTML = seqEmptyHTML("The zine"); wireCommon(); return; }
+  const cover = state.roles.hero && thumbSrc(state.roles.hero) ? state.roles.hero : seq[0].id;
+  const inner = seq.filter(x=>x.id!==cover);
+  const spreads = [];
+  for(let i=0;i<inner.length;i+=2) spreads.push([inner[i], inner[i+1]||null]);
+
+  const pageHTML = (x, side, num)=>{
+    if(!x) return `<div class="page ${side}"><div style="flex:1;display:flex;align-items:center;justify-content:center;color:#b7b0a2;font-family:var(--mono);font-size:11px">— blank page —</div><span class="pg-num">${num}</span></div>`;
+    const m = meta(x.id);
+    return `<div class="page ${side}" data-open="${esc(x.id)}" style="cursor:pointer">
+      <img src="${thumbSrc(x.id)}" alt="" loading="lazy">
+      <div class="pg-cap">${esc(m.caption||"")}</div>
+      <span class="pg-num">${num}</span>
+    </div>`;
+  };
+
+  viewport.innerHTML = `
+    <div class="tl-head"><h2>Zine Sequence</h2>
+      <span class="sub">Cover + ${spreads.length} spread${spreads.length===1?"":"s"} · ${seq.length} photos.</span></div>
+    ${fallback?`<div class="mode-note">Showing your <b>selects</b> — build the Story Timeline to control page order.</div>`:""}
+    <div class="zine-wrap">
+      <div>
+        <div class="spread">
+          <div class="page cover right" data-open="${esc(cover)}" style="cursor:pointer">
+            <img src="${thumbSrc(cover)}" alt="" loading="lazy">
+            <div class="pg-title">${esc(document.title.split("—")[0].trim())}</div>
+            <div class="pg-cap">${esc(meta(cover).caption || "a photo story")}</div>
+          </div>
+        </div>
+        <div class="spread-label">COVER${state.roles.hero===cover?" · HERO IMAGE":""}</div>
+      </div>
+      ${spreads.map((sp,i)=>`
+        <div>
+          <div class="spread">
+            ${pageHTML(sp[0],"left", i*2+2)}
+            ${pageHTML(sp[1],"right", i*2+3)}
+          </div>
+          <div class="spread-label">SPREAD ${i+1}</div>
+        </div>`).join("")}
+    </div>
+  `;
+  wireCommon();
+  $$("[data-open]").forEach(el=>el.addEventListener("click", ()=>openPanel(el.dataset.open)));
+}
+
+function renderWall(){
+  const {seq, fallback} = storyOrFallback();
+  if(!seq.length){ viewport.innerHTML = seqEmptyHTML("The exhibition wall"); wireCommon(); return; }
+  viewport.innerHTML = `
+    <div class="tl-head"><h2>Exhibition Wall</h2>
+      <span class="sub">How your sequence might hang in a room. The Hero image prints large.</span></div>
+    ${fallback?`<div class="mode-note">Showing your <b>selects</b> — build the Story Timeline to control the hang order.</div>`:""}
+    <div class="wall">
+      ${seq.map(x=>{
+        const m = meta(x.id);
+        const big = state.roles.hero===x.id;
+        const plaque = m.caption || (photo(x.id)?photo(x.id).name:x.id.split("::")[0]);
+        return `<div class="framed ${big?"big":""}" data-open="${esc(x.id)}">
+          <div class="frame"><img src="${thumbSrc(x.id)}" alt="" loading="lazy"></div>
+          <div><span class="plaque">${esc(plaque)}${m.location?" — "+esc(m.location):""}</span></div>
+        </div>`;
+      }).join("")}
+    </div>
+  `;
+  wireCommon();
+  $$("[data-open]").forEach(el=>el.addEventListener("click", ()=>openPanel(el.dataset.open)));
+}
+
+/* =====================================================================
+   SIDE PANEL — caption builder
+===================================================================== */
+function openPanel(id){
+  if(!id) return;
+  state.activeId = id;
+  state.panelOpen = true;
+  renderPanel();
+}
+function closePanel(){
+  state.panelOpen = false;
+  $("#panel").classList.remove("open");
+}
+function renderPanel(){
+  const panel = $("#panel");
+  if(!state.panelOpen || !state.activeId){ panel.classList.remove("open"); return; }
+  const id = state.activeId;
+  const m = meta(id);
+  const p = photo(id);
+  const src = (p && p.url) || state.thumbs[id];
+  const role = roleOf(id);
+  const name = p ? p.name : id.split("::")[0];
+
+  panel.classList.add("open");
+  $("#panelInner").innerHTML = `
+    <div class="panel-top">
+      <h3>Photo Notes</h3>
+      <button class="panel-close" id="panelClose" title="Close (Esc)">✕</button>
+    </div>
+    <div class="panel-photo">${src?`<img src="${src}" alt="${esc(name)}">`:`<div class="missing" style="padding:30px;text-align:center;color:var(--faint)">file not loaded</div>`}</div>
+    <div class="panel-fname">${esc(name)}</div>
+    <div class="panel-dims">${p?`${p.w} × ${p.h}px · ${p.aspect} · ${(p.size/1024/1024).toFixed(1)} MB`:"waiting for file — drop it back in to preview full size"}</div>
+
+    <div class="panel-rating">
+      <button class="ctl ${m.rating==="keep"?"on-keep":""}"   data-prate="keep">KEEP</button>
+      <button class="ctl ${m.rating==="maybe"?"on-maybe":""}" data-prate="maybe">MAYBE</button>
+      <button class="ctl ${m.rating==="reject"?"on-reject":""}" data-prate="reject">REJECT</button>
+      <button class="ctl ${role==="hero"?"on-hero":""}"     data-prole="hero">★ HERO</button>
+      <button class="ctl ${role==="opening"?"on-opening":""}" data-prole="opening">⇤ OPENING</button>
+      <button class="ctl ${role==="closing"?"on-closing":""}" data-prole="closing">⇥ CLOSING</button>
+    </div>
+
+    <div class="fld"><label for="f-caption">Caption — what is happening?</label>
+      <textarea id="f-caption" data-f="caption" placeholder="One or two sentences…">${esc(m.caption)}</textarea></div>
+    <div class="fld"><label for="f-people">Who is in the photo?</label>
+      <input id="f-people" data-f="people" value="${esc(m.people)}" placeholder="Names, roles, relationships"></div>
+    <div class="fld"><label for="f-location">Where was it made?</label>
+      <input id="f-location" data-f="location" value="${esc(m.location)}" placeholder="Neighbourhood, city, place"></div>
+    <div class="fld"><label for="f-date">When?</label>
+      <input id="f-date" data-f="date" value="${esc(m.date)}" placeholder="Date, season, time of day"></div>
+    <div class="fld"><label for="f-why">Why does this photo matter?</label>
+      <textarea id="f-why" data-f="why" placeholder="Its job in the story…">${esc(m.why)}</textarea></div>
+    <div class="fld"><label for="f-memory">Memory or quote</label>
+      <textarea id="f-memory" data-f="memory" placeholder="Something said, something remembered…">${esc(m.memory)}</textarea></div>
+
+    <div class="panel-section-label">Tags — used by Pairing Suggestions</div>
+    <div class="tag-row">
+      ${TAGS.map(t=>`<button class="tag ${m.tags.includes(t)?"on":""}" data-tag="${t}">${t}</button>`).join("")}
+    </div>
+  `;
+  $("#panelClose").addEventListener("click", closePanel);
+  $$("[data-f]", panel).forEach(inp=>inp.addEventListener("input", ()=>{
+    m[inp.dataset.f] = inp.value;
+    save();
+    renderStatus();
+  }));
+  $$("[data-f]", panel).forEach(inp=>inp.addEventListener("change", ()=>render()));
+  $$("[data-prate]", panel).forEach(b=>b.addEventListener("click", ()=>setRating(id, b.dataset.prate)));
+  $$("[data-prole]", panel).forEach(b=>b.addEventListener("click", ()=>setRole(id, b.dataset.prole)));
+  $$("[data-tag]", panel).forEach(b=>b.addEventListener("click", ()=>{
+    const t = b.dataset.tag;
+    const i = m.tags.indexOf(t);
+    if(i>=0) m.tags.splice(i,1); else m.tags.push(t);
+    save(); renderPanel();
+  }));
+}
+
+/* =====================================================================
+   EXPORTS
+===================================================================== */
+function download(filename, text, type){
+  const blob = new Blob([text], {type: type||"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+}
+function stamp(){ return new Date().toISOString().slice(0,10); }
+
+function captionRecord(id){
+  const m = meta(id);
+  const p = photo(id);
+  return {
+    file: p?p.name:id.split("::")[0],
+    rating: m.rating, role: roleOf(id),
+    caption:m.caption, people:m.people, location:m.location, date:m.date,
+    why_it_matters:m.why, memory_or_quote:m.memory, tags:m.tags,
+  };
+}
+function exportCaptionsJSON(){
+  const ids = state.order;
+  if(!ids.length){ toast("No photos to export yet."); return; }
+  const data = {
+    app:"Lightbox Lab", exported:new Date().toISOString(),
+    story_sequence: storyOrder().map((x,i)=>({position:i+1, section:x.section, ...captionRecord(x.id)})),
+    all_photos: ids.map(captionRecord),
+  };
+  download("lightboxlab-captions-"+stamp()+".json", JSON.stringify(data,null,2));
+  toast("Captions exported as JSON.");
+}
+function exportBackup(){
+  const data = {
+    app:"Lightbox Lab", v:1, savedAt:new Date().toISOString(),
+    meta:state.meta, roles:state.roles, timeline:state.timeline, order:state.order,
+    thumbs:state.thumbs,
+  };
+  download("lightboxlab-project-"+stamp()+".json", JSON.stringify(data));
+  toast("Project backup downloaded. Your image files are NOT inside — keep them safe separately.");
+}
+function importBackup(file){
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    try{
+      const d = JSON.parse(reader.result);
+      if(!d || d.app!=="Lightbox Lab") throw new Error("Not a Lightbox Lab backup");
+      if(state.order.length && !confirm("Importing will merge this backup into your current project (backup values win for photos that exist in both). Continue?")) return;
+      Object.assign(state.meta, d.meta||{});
+      state.roles = {hero:null,opening:null,closing:null, ...(d.roles||{})};
+      for(const k of SECTION_KEYS) state.timeline[k] = ((d.timeline||{})[k]||[]).slice();
+      Object.assign(state.thumbs, d.thumbs||{});
+      for(const id of (d.order||[])) if(!state.order.includes(id)) state.order.push(id);
+      save(); render();
+      toast("Project imported. Drop the matching image files in to see them full-size.");
+    }catch(e){
+      toast("⚠ Could not read that file: " + e.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function printContactSheet(){
+  const ids = state.order.filter(id=>thumbSrc(id));
+  if(!ids.length){ toast("Nothing to print yet — add some photos."); return; }
+  $("#printArea").innerHTML = `
+    <h1>Lightbox Lab — Contact Sheet</h1>
+    <div class="pr-sub">${ids.length} photos · printed ${new Date().toLocaleString()}</div>
+    <div class="pr-grid">
+      ${ids.map(id=>{
+        const m = meta(id); const role = roleOf(id);
+        return `<div class="pr-cell">
+          <img src="${thumbSrc(id)}" alt="">
+          <div class="pr-name">${esc(photo(id)?photo(id).name:id.split("::")[0])}</div>
+          <div>${m.rating?m.rating.toUpperCase():"—"}${role?" · "+role.toUpperCase():""}</div>
+        </div>`;
+      }).join("")}
+    </div>`;
+  window.print();
+}
+function printStorySequence(){
+  const {seq} = storyOrFallback();
+  if(!seq.length){ toast("Build a story (or rate some selects) first."); return; }
+  $("#printArea").innerHTML = `
+    <h1>Lightbox Lab — Story Sequence</h1>
+    <div class="pr-sub">${seq.length} photos · printed ${new Date().toLocaleString()}</div>
+    ${seq.map((x,i)=>{
+      const m = meta(x.id);
+      const rows = [
+        ["Who", m.people],["Where", m.location],["When", m.date],
+        ["Why it matters", m.why],["Memory / quote", m.memory],
+      ].filter(r=>r[1]);
+      return `<div class="pr-seq-item">
+        <img src="${thumbSrc(x.id)}" alt="">
+        <div class="pr-seq-meta">
+          <div class="pr-sec">#${i+1}${x.section?" · "+x.section:""} · ${esc(photo(x.id)?photo(x.id).name:x.id.split("::")[0])}</div>
+          <h3>${esc(m.caption || "(no caption)")}</h3>
+          ${rows.map(r=>`<p><span class="lbl">${r[0]}: </span>${esc(r[1])}</p>`).join("")}
+        </div>
+      </div>`;
+    }).join("")}`;
+  window.print();
+}
+
+/* =====================================================================
+   GLOBAL WIRING
+===================================================================== */
+function wireEmptyState(){
+  const bd = $("#bigDrop");
+  if(bd){
+    bd.addEventListener("click", ()=>$("#fileInput").click());
+    bd.addEventListener("keydown", e=>{ if(e.key==="Enter"||e.key===" ") $("#fileInput").click(); });
+  }
+  wireCommon();
+}
+function wireCommon(){
+  const fg = $("#restoreForget");
+  if(fg) fg.addEventListener("click", ()=>{
+    const missing = state.order.filter(id=>!state.byId.has(id));
+    if(!confirm("Forget "+missing.length+" missing photo(s)? Their ratings and captions will be deleted from this project.")) return;
+    for(const id of missing){
+      state.order = state.order.filter(x=>x!==id);
+      delete state.meta[id]; delete state.thumbs[id];
+      removeFromStory(id);
+      for(const r of ROLES) if(state.roles[r]===id) state.roles[r]=null;
+    }
+    save(); render();
+  });
+}
+
+// mode tabs
+$$("#modeTabs button").forEach(b=>b.addEventListener("click", ()=>{ state.mode = b.dataset.mode; render(); }));
+
+// add photos
+$("#addBtn").addEventListener("click", ()=>$("#fileInput").click());
+$("#fileInput").addEventListener("change", e=>{ ingestFiles(e.target.files); e.target.value=""; });
+$("#importInput").addEventListener("change", e=>{ if(e.target.files[0]) importBackup(e.target.files[0]); e.target.value=""; });
+
+// shuffle
+$("#shuffleBtn").addEventListener("click", shuffleStory);
+
+// export menu
+const exportMenu = $("#exportMenu");
+$("#exportBtn").addEventListener("click", e=>{ e.stopPropagation(); exportMenu.classList.toggle("open"); });
+document.addEventListener("click", e=>{ if(!e.target.closest(".menu-wrap")) exportMenu.classList.remove("open"); });
+exportMenu.addEventListener("click", e=>{
+  const btn = e.target.closest("[data-export]");
+  if(!btn) return;
+  exportMenu.classList.remove("open");
+  ({ "print-sheet":printContactSheet,
+     "print-seq":printStorySequence,
+     "captions-json":exportCaptionsJSON,
+     "backup":exportBackup,
+     "import":()=>$("#importInput").click(),
+  })[btn.dataset.export]();
+});
+
+// window-level drag & drop
+let dragDepth = 0;
+window.addEventListener("dragenter", e=>{
+  if(e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files")){
+    dragDepth++;
+    $("#dropOverlay").classList.add("active");
+  }
+});
+window.addEventListener("dragleave", e=>{
+  if($("#dropOverlay").classList.contains("active")){
+    dragDepth = Math.max(0, dragDepth-1);
+    if(dragDepth===0) $("#dropOverlay").classList.remove("active");
+  }
+});
+window.addEventListener("dragover", e=>{
+  if(Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault();
+});
+window.addEventListener("drop", e=>{
+  dragDepth = 0;
+  $("#dropOverlay").classList.remove("active");
+  if(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length){
+    e.preventDefault();
+    ingestFiles(e.dataTransfer.files);
+  }
+});
+
+// keyboard shortcuts
+document.addEventListener("keydown", e=>{
+  const tag = (e.target.tagName||"").toLowerCase();
+  if(tag==="input" || tag==="textarea" || tag==="select" || e.metaKey || e.ctrlKey || e.altKey){
+    if(e.key==="Escape"){ e.target.blur(); }
+    return;
+  }
+  if(e.key==="Escape"){ closePanel(); render(); return; }
+  const id = state.activeId;
+  if(!id) return;
+  const map = {"1":["rate","keep"],"2":["rate","maybe"],"3":["rate","reject"],
+               "h":["role","hero"],"o":["role","opening"],"c":["role","closing"]};
+  const m = map[e.key.toLowerCase()];
+  if(!m) return;
+  e.preventDefault();
+  if(m[0]==="rate") setRating(id, m[1]); else setRole(id, m[1]);
+  // step to the next photo after rating — fast culling flow
+  if(m[0]==="rate" && state.mode==="sheet"){
+    const ids = loadedIds();
+    const i = ids.indexOf(id);
+    if(i>=0 && i<ids.length-1){ state.activeId = ids[i+1]; if(state.panelOpen) renderPanel(); render(); }
+  }
+});
+// arrow-key navigation on the contact sheet
+document.addEventListener("keydown", e=>{
+  const tag = (e.target.tagName||"").toLowerCase();
+  if(tag==="input"||tag==="textarea") return;
+  if(state.mode!=="sheet") return;
+  if(e.key!=="ArrowLeft" && e.key!=="ArrowRight") return;
+  const ids = loadedIds();
+  if(!ids.length) return;
+  let i = ids.indexOf(state.activeId);
+  i = e.key==="ArrowRight" ? Math.min(ids.length-1, i+1) : Math.max(0, i<0?0:i-1);
+  state.activeId = ids[i];
+  if(state.panelOpen) renderPanel();
+  render();
+  const el = $(`.card[data-id="${CSS.escape(ids[i])}"]`);
+  if(el) el.scrollIntoView({block:"nearest"});
+});
+
+// toast helper
+function toast(msg){
+  const t = document.createElement("div");
+  t.className = "toast";
+  t.textContent = msg;
+  $("#toasts").appendChild(t);
+  setTimeout(()=>{ t.style.transition="opacity .4s"; t.style.opacity="0"; setTimeout(()=>t.remove(), 450); }, 3200);
+}
+
+// clean up print DOM after printing
+window.addEventListener("afterprint", ()=>{ $("#printArea").innerHTML=""; });
+
+/* ============ BOOT ============ */
+loadSaved();
+render();
+})();
+</script>
+</body>
+</html>
